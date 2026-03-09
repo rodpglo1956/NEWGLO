@@ -1,11 +1,7 @@
 {
   "mcpServers": {
     "composio": {
-      "command": "npx",
-      "args": ["-y", "composio-mcp@latest"],
-      "env": {
-        "COMPOSIO_API_KEY": "${COMPOSIO_API_KEY}"
-      }
+      "url": "https://backend.composio.dev/v3/mcp/458e6a77-4a2a-495f-a7d2-01ae6c6134e6/mcp?user_id=pg-test-3696b7cb-7cb5-4071-8b98-95421f7a742b"
     }
   }
 }
