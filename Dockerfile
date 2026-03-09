@@ -1,5 +1,5 @@
-# Ava Relay - Claude Code Telegram Bot
-# Deploy on Railway
+# Avengers Relay - Claude Code Telegram Bot Fleet
+# Deploy on Railway - one image, multiple services via BOT_ID
 
 FROM oven/bun:1-debian AS base
 
@@ -10,8 +10,8 @@ RUN apt-get update && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code CLI
-RUN npm install -g @anthropic-ai/claude-code
+# Install Claude Code CLI and Composio MCP
+RUN npm install -g @anthropic-ai/claude-code composio-mcp@latest
 
 WORKDIR /app
 
@@ -19,6 +19,10 @@ COPY package.json bun.lockb* ./
 RUN bun install --production
 
 COPY . .
+
+# Set up Claude Code MCP config
+RUN mkdir -p /root/.claude
+COPY .claude/mcp.json /root/.claude/mcp.json
 
 RUN mkdir -p /data/relay /data/temp /data/uploads
 
