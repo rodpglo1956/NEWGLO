@@ -1,0 +1,19 @@
+{
+  "name": "avengers-relay",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/relay.ts",
+    "dev": "bun run --watch src/relay.ts",
+    "test:telegram": "bun run setup/test-telegram.ts",
+    "test:supabase": "bun run setup/test-supabase.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "grammy": "^1.21.1",
+    "groq-sdk": "^0.8.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
