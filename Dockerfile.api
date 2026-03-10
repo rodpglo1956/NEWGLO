@@ -1,0 +1,18 @@
+# ============================================
+# Command Center API - Lightweight Hono server
+# Runs on Bun for native TypeScript support
+# ============================================
+
+FROM oven/bun:1 AS base
+WORKDIR /app
+
+# Install dependencies
+COPY package.json ./
+RUN bun install --production
+
+# Copy API server source
+COPY src/api-server.ts ./src/api-server.ts
+
+EXPOSE 3001
+
+CMD ["bun", "run", "src/api-server.ts"]

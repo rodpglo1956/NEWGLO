@@ -5,13 +5,17 @@
   "scripts": {
     "start": "bun run src/relay.ts",
     "dev": "bun run --watch src/relay.ts",
+    "api": "bun run src/api-server.ts",
+    "dev:api": "bun --watch run src/api-server.ts",
     "test:telegram": "bun run setup/test-telegram.ts",
     "test:supabase": "bun run setup/test-supabase.ts"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.45.0",
+    "@anthropic-ai/sdk": "^0.52.0",
+    "@supabase/supabase-js": "^2.49.4",
     "grammy": "^1.21.1",
-    "groq-sdk": "^0.8.0"
+    "groq-sdk": "^0.8.0",
+    "hono": "^4.7.7"
   },
   "devDependencies": {
     "@types/bun": "latest"
