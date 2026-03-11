@@ -10,9 +10,8 @@ WORKDIR /app
 COPY package.json ./
 RUN bun install --production
 
-# Copy API server source + widget
+# Copy API server source
 COPY src/api-server.ts ./src/api-server.ts
-COPY src/widget/ ./src/widget/
 
 EXPOSE 3001
 
