@@ -21,7 +21,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { createClient } from "@supabase/supabase-js";
-import Anthropic from "@anthropic-ai/sdk";
+import { spawn } from "bun";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -34,15 +34,45 @@ const PORT = parseInt(process.env.PORT || "3001", 10);
 const API_SECRET = process.env.API_SECRET || "";
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_KEY = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY || "";
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
-const MODEL = process.env.MODEL || "claude-sonnet-4-5-20250929";
+const CLAUDE_PATH = process.env.CLAUDE_PATH || "claude";
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "https://glomatrix.app,https://www.glomatrix.app").split(",").map(s => s.trim());
 
 if (!SUPABASE_URL || !SUPABASE_KEY) { console.error("Missing SUPABASE_URL or SUPABASE_KEY"); process.exit(1); }
-if (!ANTHROPIC_API_KEY) { console.error("Missing ANTHROPIC_API_KEY"); process.exit(1); }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+
+// ─── Claude CLI ─────────────────────────────────────────────────────────
+
+async function callClaude(systemPrompt: string, userMessage: string, history: { role: string; content: string }[] = []): Promise<string> {
+  const parts: string[] = [systemPrompt];
+  for (const m of history) {
+    parts.push(`\n${m.role === "user" ? "User" : "Assistant"}: ${m.content}`);
+  }
+  parts.push(`\nUser: ${userMessage}`);
+  const prompt = parts.join("\n");
+
+  try {
+    const proc = spawn([CLAUDE_PATH, "-p", prompt, "--output-format", "text"], {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env },
+    });
+
+    const output = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+    const exitCode = await proc.exited;
+
+    if (exitCode !== 0) {
+      console.error("[claude] error:", stderr.slice(0, 300));
+      return "I ran into an issue. Please try again.";
+    }
+
+    return output.trim();
+  } catch (err) {
+    console.error("[claude] spawn error:", err);
+    return "Connection issue. Please try again.";
+  }
+}
 
 // ─── Rate Limiter (in-memory, per IP) ──────────────────────────────────
 
@@ -331,50 +361,20 @@ app.post("/api/widget/chat", async (c) => {
     .order("created_at", { ascending: false })
     .limit(10);
 
-  const messages: Anthropic.MessageParam[] = [
-    ...(history || []).reverse().map((m: any) => ({
-      role: m.role as "user" | "assistant",
-      content: m.content,
-    })),
-    { role: "user", content: message },
-  ];
+  const historyMessages = (history || []).reverse().map((m: any) => ({ role: m.role as string, content: m.content as string }));
 
   // Save user message
   await supabase.from("bot_messages").insert({
-    bot_id: bot.id,
-    role: "user",
-    content: message,
-    channel: "widget",
-    session_id: token,
+    bot_id: bot.id, role: "user", content: message, channel: "widget", session_id: token,
   });
 
-  try {
-    const response = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 1024,
-      system: bot.systemPrompt,
-      messages,
-    });
+  const reply = await callClaude(bot.systemPrompt, message, historyMessages);
 
-    const reply = response.content
-      .filter((b) => b.type === "text")
-      .map((b) => b.text)
-      .join("\n");
+  await supabase.from("bot_messages").insert({
+    bot_id: bot.id, role: "assistant", content: reply, channel: "widget", session_id: token,
+  });
 
-    // Save bot response
-    await supabase.from("bot_messages").insert({
-      bot_id: bot.id,
-      role: "assistant",
-      content: reply,
-      channel: "widget",
-      session_id: token,
-    });
-
-    return c.json({ reply, bot_name: bot.name });
-  } catch (err: any) {
-    console.error(`Claude API error:`, err.message);
-    return c.json({ error: "Something went wrong. Please try again." }, 500);
-  }
+  return c.json({ reply, bot_name: bot.name });
 });
 
 // ─── Internal: Chat ────────────────────────────────────────────────────
@@ -396,24 +396,16 @@ app.post("/api/chat", async (c) => {
     .order("created_at", { ascending: false })
     .limit(20);
 
-  const messages: Anthropic.MessageParam[] = [
-    ...(history || []).reverse().map((m: any) => ({ role: m.role as "user" | "assistant", content: m.content })),
-    { role: "user", content: message },
-  ];
+  const historyMessages = (history || []).reverse().map((m: any) => ({ role: m.role as string, content: m.content as string }));
 
   await supabase.from("bot_messages").insert({ bot_id: bot.id, role: "user", content: message, channel: "web" });
 
-  try {
-    const response = await anthropic.messages.create({ model: MODEL, max_tokens: 2048, system: bot.systemPrompt, messages });
-    const reply = response.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  const reply = await callClaude(bot.systemPrompt, message, historyMessages);
 
-    await supabase.from("bot_messages").insert({ bot_id: bot.id, role: "assistant", content: reply, channel: "web" });
-    await supabase.from("bot_activity_log").insert({ bot_id: bot.id, event: "web_response", details: `Replied (${reply.length} chars)` });
+  await supabase.from("bot_messages").insert({ bot_id: bot.id, role: "assistant", content: reply, channel: "web" });
+  await supabase.from("bot_activity_log").insert({ bot_id: bot.id, event: "web_response", details: `Replied (${reply.length} chars)` });
 
-    return c.json({ bot_id: bot.id, bot_name: bot.name, codename: bot.codename, reply, model: MODEL });
-  } catch (err: any) {
-    return c.json({ error: "Failed to get bot response", details: err.message }, 500);
-  }
+  return c.json({ bot_id: bot.id, bot_name: bot.name, codename: bot.codename, reply });
 });
 
 // ─── Internal: War Room ────────────────────────────────────────────────
@@ -430,12 +422,8 @@ app.post("/api/war-room", async (c) => {
 
   const responses = await Promise.allSettled(
     targetBots.map(async (bot: BotPersona) => {
-      const response = await anthropic.messages.create({
-        model: MODEL, max_tokens: 1024,
-        system: `${bot.systemPrompt}\n\nYou are in the WAR ROOM — a multi-bot session. Stay in your lane. Be concise but valuable.`,
-        messages: [{ role: "user", content: message }],
-      });
-      const reply = response.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+      const warRoomSystem = `${bot.systemPrompt}\n\nYou are in the WAR ROOM — a multi-bot session. Stay in your lane. Be concise but valuable.`;
+      const reply = await callClaude(warRoomSystem, message);
       await supabase.from("bot_messages").insert({ bot_id: bot.id, role: "assistant", content: `[War Room] ${reply}`, channel: "web" });
       return { bot_id: bot.id, bot_name: bot.name, codename: bot.codename, reply };
     })
